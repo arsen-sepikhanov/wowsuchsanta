@@ -5,14 +5,19 @@ import java.awt.Color
 import java.awt.Graphics
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import javax.swing.JFrame
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import kotlin.math.min
+import kotlin.math.pow
+import kotlin.math.sqrt
+
+val fileContent = Map::class.java.getResource("/map.json")?.readText()!!
+val map = jacksonObjectMapper().readValue(fileContent, Map::class.java)
 
 fun main(args: Array<String>) {
-    val fileContent = Map::class.java.getResource("/map.json")?.readText()!!
-    val map = jacksonObjectMapper().readValue(fileContent, Map::class.java)
     map.snowAreas.maxBy { it.r }.also { println(it) }
     SwingUtilities.invokeLater {
         JFrame("hello").also {
@@ -27,29 +32,37 @@ fun main(args: Array<String>) {
 }
 
 fun canvas(map: Map): JPanel {
+    var c1: Children? = null
+    var c2: Children? = null
     val panel = object : JPanel() {
         override fun paintComponent(g: Graphics) {
             super.paintComponent(g)
             val scale = min(width, height) / 10000.0
+            fun Int.scaled() = (this * scale).toInt()
             g.color = Color.RED
             map.snowAreas.forEach { sa ->
-                val r = sa.r * scale
-                val d = (r * 2).toInt()
+                val d = (sa.r * 2).scaled()
                 g.fillOval(
-                    (sa.x * scale - r).toInt(),
-                    (sa.y * scale - r).toInt(),
+                    (sa.x - sa.r).scaled(),
+                    (sa.y - sa.r).scaled(),
                     d,
                     d
                 )
             }
+
             g.color = Color.BLACK
+            val rad = 3
             map.children.forEach { ch ->
                 g.fillOval(
-                    (ch.x * scale).toInt(),
-                    (ch.y * scale).toInt(),
-                    3,
-                    3
+                    ch.x.scaled(),
+                    ch.y.scaled(),
+                    rad,
+                    rad
                 )
+            }
+            if (c1 != null && c2 != null) {
+                fastestLine(g, c1!!, c2!!)
+//                g.drawLine(c1!!.x.scaled(), c1!!.y.scaled(), c2!!.x.scaled(), c2!!.y.scaled())
             }
         }
     }
@@ -60,8 +73,28 @@ fun canvas(map: Map): JPanel {
                 panel.repaint()
             }
         })
+        it.addMouseListener(object: MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                c1 = map.children.random()
+                c2 = map.children.random()
+                panel.repaint()
+            }
+        })
     }
 }
+
+fun fastestLine(g: Graphics, c1: Children, c2: Children) {
+
+}
+
+fun isPointInCircle(ch: Children): Boolean {
+    return map.snowAreas.any { sa ->
+        sqrt((sa.x - ch.x).toDouble().pow(2) + (sa.y - ch.y).toDouble().pow(2) ) < sa.r
+    }
+}
+
+//если расстояние от дома до центра окружности меньше чем ее радиус то начинаем изнутри окружности
+//уравнение точки: y = kx + b
 
 data class Map(
     val gifts: Collection<Gift>,
