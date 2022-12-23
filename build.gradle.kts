@@ -19,6 +19,7 @@ dependencies { // All the libraries you want to use. See 4️⃣
     implementation("com.squareup.okhttp3:okhttp:3.2.0")
     implementation("com.fasterxml.jackson.core:jackson-databind:2.14.0")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.14.0")
+    implementation("org.apache.commons:commons-math3:3.0")
 }
 
 tasks.test { // See 5️⃣
