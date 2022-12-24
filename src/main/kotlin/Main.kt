@@ -93,20 +93,18 @@ fun fastestLine(g: Graphics, c1: Children, c2: Children, scale: Double) {
     val linearCoefficients = solveLinearEquation(c1, c2)
     val minX = min(c1.x, c2.x)
     val maxX = max(c1.x, c2.x)
-    //не совсем правильно выбирается кто левее, надо смотреть по тангенсу. но в большинстве случаев работает норм
-    val leastChildren = if (c1.x == minX) c1 else c2
-    val mostChildren = if (c1.x == maxX) c1 else c2
     for (snowArea in map.snowAreas) {
-        if (
-            snowArea.x < minX && !isPointInCircle(leastChildren) || snowArea.x > maxX && !isPointInCircle(mostChildren)
-        ) {
-            continue
-        }
         val quad = prepareAndSolveQuad(linearCoefficients, snowArea)
         quad.res1?.let {
+            if (it > maxX || it < minX) {
+                return@let
+            }
             g.drawLine(it.toInt().scaled(), 0, it.toInt().scaled(), 1000)
         }
         quad.res2?.let {
+            if (it > maxX || it < minX) {
+                return@let
+            }
             g.drawLine(it.toInt().scaled(), 0, it.toInt().scaled(), 1000)
         }
     }
@@ -121,7 +119,7 @@ fun solveLinearEquation(ch1: Children, ch2: Children): KxPlusB {
     ).solver.solve(ArrayRealVector(arrayOf(ch1.y.toDouble(), ch2.y.toDouble())))
     val b = res.getEntry(1)
     val k = res.getEntry(0)
-    println("y = $k x + $b")
+    println("tan = $k")
     return KxPlusB(k, b)
 }
 
@@ -138,16 +136,15 @@ fun prepareAndSolveQuad(kxpb: KxPlusB, circle: SnowArea): QuadSolution {
 fun solveQuad(a: Double, b: Double, c: Double): QuadSolution {
     val discr = b.pow(2) - 4 * a * c
     if (discr < 0) {
-        println("nothing")
         return QuadSolution(null, null)
     } else if (discr.compareTo(0.0) == 0) {
         val res = -b / (2 * a)
-        println("res is $res")
+
         return QuadSolution(res, null)
     } else {
         val res1 = (-b - sqrt(discr)) / (2 * a)
         val res2 = (-b + sqrt(discr)) / (2 * a)
-        println("res1=$res1, res2=$res2")
+
         return QuadSolution(res1, res2)
     }
 }
