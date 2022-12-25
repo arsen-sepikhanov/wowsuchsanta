@@ -13,13 +13,13 @@ import java.awt.event.MouseEvent
 import javax.swing.JFrame
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
-import kotlin.math.max
-import kotlin.math.min
-import kotlin.math.pow
-import kotlin.math.sqrt
+import kotlin.math.*
 
 val fileContent = Map::class.java.getResource("/map.json")?.readText()!!
 val map = jacksonObjectMapper().readValue(fileContent, Map::class.java)
+
+val timePerUnit = 1.0
+val timePerUnitInRed = timePerUnit * 7
 
 fun main(args: Array<String>) {
     map.snowAreas.maxBy { it.r }.also { println(it) }
@@ -76,7 +76,7 @@ fun canvas(map: Map): JPanel {
                 panel.repaint()
             }
         })
-        it.addMouseListener(object: MouseAdapter() {
+        it.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
                 c1 = map.children.random()
                 c2 = map.children.random()
@@ -88,38 +88,47 @@ fun canvas(map: Map): JPanel {
 
 fun fastestLine(g: Graphics, c1: Children, c2: Children, scale: Double) {
     fun Int.scaled() = (this * scale).toInt()
+    fun Double.scaled() = (this * scale).toInt()
     g.drawLine(c1.x.scaled(), c1.y.scaled(), c2.x.scaled(), c2.y.scaled())
     g.fillRect(c1.x.scaled(), c1.y.scaled(), 5, 5)
     val linearCoefficients = solveLinearEquation(c1, c2)
     val minX = min(c1.x, c2.x)
     val maxX = max(c1.x, c2.x)
+
+    val line = LineWithSnowAreas(c1.point, c2.point)
     for (snowArea in map.snowAreas) {
         val quad = prepareAndSolveQuad(linearCoefficients, snowArea)
-        quad.res1?.let {
-            if (it > maxX || it < minX) {
-                return@let
-            }
-            g.drawLine(it.toInt().scaled(), 0, it.toInt().scaled(), 1000)
+        val intersec = IntersectionWithCircle(quad.res1, quad.res2, snowArea, linearCoefficients)
+        val acceptablePoints = intersec.solutions()
+            .filter { it.x in (minX .. maxX)  }
+        if (acceptablePoints.isNotEmpty()) {
+            println(acceptablePoints)
         }
-        quad.res2?.let {
-            if (it > maxX || it < minX) {
-                return@let
-            }
-            g.drawLine(it.toInt().scaled(), 0, it.toInt().scaled(), 1000)
+
+        acceptablePoints.forEach {
+            g.drawOval(
+                it.x.scaled(),
+                it.y.scaled(),
+                5,
+                5
+            )
         }
     }
+
+    calculateWeightOfLine(c1, c2)
 }
 
 fun solveLinearEquation(ch1: Children, ch2: Children): KxPlusB {
     val res = SingularValueDecomposition(
-        MatrixUtils.createRealMatrix(arrayOf(
-            arrayOf(ch1.x.toDouble(), 1.0).toDoubleArray(),
-            arrayOf(ch2.x.toDouble(), 1.0).toDoubleArray()
-        ))
+        MatrixUtils.createRealMatrix(
+            arrayOf(
+                arrayOf(ch1.x.toDouble(), 1.0).toDoubleArray(),
+                arrayOf(ch2.x.toDouble(), 1.0).toDoubleArray()
+            )
+        )
     ).solver.solve(ArrayRealVector(arrayOf(ch1.y.toDouble(), ch2.y.toDouble())))
     val b = res.getEntry(1)
     val k = res.getEntry(0)
-    println("tan = $k")
     return KxPlusB(k, b)
 }
 
@@ -132,34 +141,100 @@ fun prepareAndSolveQuad(kxpb: KxPlusB, circle: SnowArea): QuadSolution {
     return solveQuad(a, b, c)
 }
 
+fun calculateWeightOfLine(ch1: Children, ch2: Children) {
+    //обе точки в одном круге, ближайшее расстояние просто по прямой
+    if (bothPointsInSameCircle(ch1.point, ch2.point)) {
+        val distance = distanceBetweenCoords(ch1.point, ch2.point)
+        val weight = distance * timePerUnitInRed
+        println("Both points are in same circle, distance = $distance, weight = $weight")
+    }
+
+    var startRedSegment = 0.0
+    //начало в круге,
+    if (isPointInCircle(ch1)) {
+
+    }
+}
+
+fun distanceBetweenCoords(a: Point, b: Point): Double {
+    return sqrt(
+        (a.x - b.x).toDouble().pow(2) + (a.y - b.y).toDouble().pow(2)
+    )
+}
+
+data class Point(val x: Int, val y: Int)
+
+fun bothPointsInSameCircle(p1: Point, p2: Point): Boolean {
+    return map.snowAreas.any { sa -> bothPointsInSameCircle(p1, p2, sa) }
+}
+
+fun bothPointsInSameCircle(c1: Point, c2: Point, area: SnowArea): Boolean {
+    return isPointInCircle(c1, area) && isPointInCircle(c2, area)
+}
 
 fun solveQuad(a: Double, b: Double, c: Double): QuadSolution {
     val discr = b.pow(2) - 4 * a * c
-    if (discr < 0) {
-        return QuadSolution(null, null)
+    return if (discr < 0) {
+        QuadSolution(null, null)
     } else if (discr.compareTo(0.0) == 0) {
         val res = -b / (2 * a)
-
-        return QuadSolution(res, null)
+        QuadSolution(res, null)
     } else {
         val res1 = (-b - sqrt(discr)) / (2 * a)
         val res2 = (-b + sqrt(discr)) / (2 * a)
-
-        return QuadSolution(res1, res2)
+        QuadSolution(res1, res2)
     }
 }
 
 data class KxPlusB(val k: Double, val b: Double)
 data class QuadSolution(val res1: Double?, val res2: Double?)
 
-fun isPointInCircle(ch: Children): Boolean {
-    return map.snowAreas.any { sa ->
-        sqrt((sa.x - ch.x).toDouble().pow(2) + (sa.y - ch.y).toDouble().pow(2) ) < sa.r
+class IntersectionWithCircle(x1: Double?, x2: Double?, srcCircle: SnowArea, kxpb: KxPlusB) {
+
+    private val solution1: Point?
+    private val solution2: Point?
+
+    init {
+        solution1 = if (x1 != null) {
+            Point(x = x1.toInt(), y = calculateY(x1, srcCircle, kxpb).toInt())
+        } else {
+            null
+        }
+
+        solution2 = if (x2  != null) {
+            Point(x = x2.toInt(), y = calculateY(x2, srcCircle, kxpb).toInt())
+        }  else {
+            null
+        }
     }
+
+    private fun calculateY(x: Double, scrCircle: SnowArea, kxpb: KxPlusB): Double {
+        // (x - xo)^2 + (y - yo)^2 = r^2
+        // (x1 - xo)^2 + (y - yo)^2 = r^2
+        // (y - yo)^2 = r^2 - (x1 - x0)^2
+        // y = +- sqrt( r^2 - (x1 - x0)^2 ) + yo
+
+        val plusSqrt = sqrt(
+            scrCircle.r.toDouble().pow(2) - (x - scrCircle.x).pow(2)
+        )
+        val minusSqrt = -plusSqrt
+        val res1 = plusSqrt + scrCircle.y
+        val res2 = minusSqrt + scrCircle.y
+        val pointOnLine = kxpb.k * x + kxpb.b
+
+        return if (abs(res1 - pointOnLine) < 0.01) res1 else res2
+    }
+
+    fun solutions() = listOfNotNull(solution1, solution2)
 }
 
-//если расстояние от дома до центра окружности меньше чем ее радиус то начинаем изнутри окружности
-//уравнение точки: y = kx + b
+fun isPointInCircle(ch: Children): Boolean {
+    return map.snowAreas.any { sa -> isPointInCircle(ch.point, sa) }
+}
+
+fun isPointInCircle(ch: Point, sa: SnowArea): Boolean {
+    return sqrt((sa.x - ch.x).toDouble().pow(2) + (sa.y - ch.y).toDouble().pow(2)) < sa.r
+}
 
 data class Map(
     val gifts: Collection<Gift>,
@@ -167,9 +242,33 @@ data class Map(
     val children: Collection<Children>
 )
 
+
+var snowAreaId = 0
 data class Gift(val id: Long, val weight: Int, val volume: Int)
-data class SnowArea(val x: Int, val y: Int, val r: Int)
-data class Children(val x: Int, val y: Int)
+class SnowArea(val x: Int, val y: Int, val r: Int) {
+    val id: Int = snowAreaId.inc()
+}
+data class Children(val x: Int, val y: Int) {
+    val point = Point(x, y)
+}
+
+class LineWithSnowAreas(private val p1: Point, private val p2: Point) {
+
+    private val solutions: MutableCollection<QuadSolution> = mutableListOf()
+
+    fun addSolution(sol: QuadSolution) {
+        solutions.add(sol)
+    }
+
+//    fun sortSolutionsFromStartToEndPoint() {
+//        if (p1.x < p2.x) {
+//            solutions = solutions.sortedBy { it. }
+//        } else {
+//
+//        }
+//    }
+}
+
 
 fun a() {
     val c = OkHttpClient()
